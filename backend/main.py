@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import sqlite3
 import tempfile
@@ -27,179 +28,9 @@ app.add_middleware(
 )
 
 # ── CORPUS ───────────────────────────────────────────────────────────────────
-_CORPUS_DICT = {
-    "originales": [
-        "Si te hiciste un tatuaje reciente debes esperar 6 meses para donar sangre",
-        "Personas con tatuajes pueden donar luego de 6 meses del procedimiento",
-        "Para donar sangre debes estar sano y sin infecciones activas",
-        "Después de tomar antibióticos debes esperar al menos 7 días para donar",
-        "Si tomaste penicilina o amoxicilina debes esperar una semana",
-        "Luego de una cirugía el tiempo de espera depende del tipo de operación",
-        "Una cirugía menor requiere esperar al menos 6 meses para donar",
-        "La hepatitis B o C impide la donación de sangre de forma permanente",
-        "El dengue requiere esperar 28 días después de recuperarte para donar",
-        "El COVID-19 requiere esperar 14 días después de la recuperación completa",
-        "Los piercing también requieren esperar 6 meses igual que los tatuajes",
-        "La diabetes tipo 1 impide donar sangre de forma permanente",
-        "soy diabetico tipo 1 impide donar sangre de forma permanente",
-        "La diabetes tipo 2 controlada no impide la donación si los valores son normales",
-        "soy diabetico tipo 2 controlada no impide la donación si los valores son normales",
-        "La hipertensión controlada no impide la donación si los valores son normales",
-        "Debes pesar más de 50 kilos para poder donar sangre",
-        "La edad mínima para donar sangre es 18 años y la máxima 65 años",
-        "Debes estar en ayunas de al menos 4 horas antes de donar",
-        "Si tuviste fiebre en los últimos 7 días no podés donar sangre",
-        "El VIH o SIDA impide la donación de sangre de forma permanente",
-        "Se puede donar sangre cada 3 meses en el caso de los hombres",
-        "Las mujeres pueden donar sangre cada 4 meses como mínimo",
-    ],
-
-    "requisitos": [
-        "Sentirse bien y sano el día de la donación es requisito para donar sangre",
-        "Tener entre 16 y 65 años para donar sangre, mayores de 65 requieren certificado médico",
-        "Pesar más de 50 kg para donar sangre ya que se extraen 450 ml aproximadamente",
-        "Presentar DNI para donar sangre",
-        "No concurrir en ayunas antes de donar sangre, desayunar o almorzar antes",
-        "Temperatura corporal no mayor a 37 grados para poder donar sangre",
-        "Hemoglobina entre 12.5 y 17 gramos por decilitro para donar sangre",
-        "Hematocrito entre 38 y 52 por ciento para poder donar sangre",
-        "Pulso entre 60 y 100 latidos por minuto para donar sangre",
-        "Tensión sistólica entre 100 y 170 mmHg y diastólica entre 60 y 100 mmHg para donar",
-    ],
-
-    "frecuencia": [
-        "Los hombres pueden donar sangre mínimo cada 8 semanas hasta 5 veces por año",
-        "Las mujeres pueden donar sangre mínimo cada 12 semanas hasta 4 veces por año",
-        "Jóvenes de 16 a 17 años pueden donar sangre mínimo cada 6 meses hasta 2 veces por año",
-        "La aféresis no debe realizarse más frecuente que cada 3 días",
-        "Luego de una aféresis se debe diferir la sangre entera al menos 48 horas",
-        "Para aféresis los donantes deben tener entre 18 y 65 años",
-    ],
-
-    "antes_de_donar": [
-        "No fumar antes de donar sangre",
-        "No concurrir en ayunas para donar sangre, desayunar o almorzar antes de ir",
-        "Hidratarse bien antes de donar sangre",
-        "Usar vestimenta cómoda para poder arremangarse al donar sangre",
-        "No acercarse al banco de sangre solo para saber si tiene una infección, derivar al médico",
-    ],
-
-    "durante_la_donacion": [
-        "Durante la donación permanecer recostado en posición cómoda",
-        "Durante la donación no mover el brazo con la venopunción",
-        "Avisar si hay mareos náuseas o incomodidad durante la donación de sangre",
-        "Al terminar la donación comprimir la zona con el apósito al menos 5 minutos",
-        "No levantarse hasta que el técnico lo indique después de donar sangre",
-    ],
-
-    "despues_de_donar": [
-        "Después de donar sangre consumir el refrigerio ofrecido",
-        "Después de donar sangre aumentar ingesta de líquidos y comer bien ese día",
-        "Dejar el apósito al menos 4 horas después de donar sangre",
-        "Si hay sangrado después de donar presionar levantar el brazo y aplicar hielo",
-        "Evitar ejercicio enérgico y deportes de contacto después de donar sangre",
-        "No conducir por tiempo prolongado las primeras 2 horas después de donar sangre",
-        "No fumar las 2 horas siguientes a la donación de sangre",
-        "Completar el formulario confidencial HEMO 3 con sí o no, sin este formulario la sangre no puede ser utilizada",
-    ],
-
-    "medicamentos_diferimiento_permanente": [
-        "Digoxina produce diferimiento permanente para donar sangre",
-        "Vasodilatadores producen diferimiento permanente para donar sangre",
-        "Insulina produce diferimiento permanente para donar sangre",
-        "Anticoagulantes producen diferimiento permanente para donar sangre",
-        "Hormona de crecimiento hipofisaria humana produce diferimiento permanente, la recombinante no difiere",
-        "Etretinato Tigason produce diferimiento permanente para donar sangre",
-        "Medicamentos oncológicos producen diferimiento permanente para donar sangre",
-        "Antipsicóticos como Quetiapina Risperidona Olanzapina Haloperidol producen diferimiento permanente",
-        "Anticonvulsivantes para epilepsia producen diferimiento permanente para donar sangre",
-        "Betabloqueantes con frecuencia cardíaca menor a 60 por minuto producen diferimiento permanente",
-    ],
-
-    "medicamentos_diferimiento_transitorio": [
-        "Acitretina Neotigason requiere esperar 3 años luego de suspendido para donar sangre",
-        "Dutasteride requiere esperar 6 meses luego de suspendido para donar sangre",
-        "Testosterona requiere esperar 6 meses luego de suspendido para donar sangre",
-        "Clomifeno requiere esperar 3 meses luego de suspendido para donar sangre",
-        "Isotretinoína Roacutan requiere esperar 1 mes luego de suspendido para donar sangre",
-        "Finasteride requiere esperar 1 mes luego de suspendido para donar sangre",
-        "Antibióticos requieren esperar 7 días luego de suspendido para donar sangre",
-        "Tetraciclina Doxiciclina y Eritromicina no requieren diferimiento para donar sangre",
-        "Corticoides sistémicos requieren esperar 48 horas luego de suspendido para donar sangre",
-    ],
-
-    "medicamentos_sin_diferimiento": [
-        "Antitabaco no requiere diferimiento para donar sangre",
-        "Anticonceptivos no requieren diferimiento para donar sangre",
-        "Anticolesterol no requiere diferimiento para donar sangre",
-        "Descongestivos nasales y broncodilatadores no requieren diferimiento para donar sangre",
-        "Vitaminas y minerales no requieren diferimiento para donar sangre",
-        "Tranquilizantes ansiolíticos y antidepresivos no requieren diferimiento para donar sangre",
-        "Analgésicos menores no requieren diferimiento para donar sangre",
-        "Diuréticos no requieren diferimiento para donar sangre",
-        "Antifúngicos para micosis ungueal no requieren diferimiento para donar sangre",
-    ],
-
-    "vacunas_diferir_1_mes": [
-        "Vacuna polio oral Sabin requiere diferir 1 mes para donar sangre",
-        "Vacuna triple viral paperas sarampión rubéola requiere diferir 1 mes para donar sangre",
-        "Vacuna doble viral sarampión rubéola requiere diferir 1 mes para donar sangre",
-        "Vacuna fiebre amarilla requiere diferir 1 mes para donar sangre",
-        "Vacuna BCG requiere diferir 1 mes para donar sangre",
-        "Vacuna varicela herpes zóster requiere diferir 1 mes para donar sangre",
-        "Vacuna dengue requiere diferir 1 mes para donar sangre",
-    ],
-
-    "vacunas_sin_diferimiento": [
-        "Vacuna polio inyectable Salk no requiere diferimiento para donar sangre",
-        "Vacuna tétano no requiere diferimiento para donar sangre",
-        "Vacuna influenza no requiere diferimiento para donar sangre",
-        "Vacuna hepatitis B recombinante sin exposición no requiere diferimiento para donar sangre",
-        "Vacuna hepatitis B posexposición requiere diferir 12 meses para donar sangre",
-        "Vacuna hepatitis A sin exposición no requiere diferimiento para donar sangre",
-        "Vacuna hepatitis A posexposición requiere diferir 6 semanas para donar sangre",
-        "Vacuna antirrábica sin mordedura no requiere diferimiento para donar sangre",
-        "Vacuna antirrábica con mordedura requiere diferir 1 año para donar sangre",
-        "Vacuna neumococo HPV meningitis no requieren diferimiento para donar sangre",
-    ],
-
-    "conductas_de_riesgo": [
-        "Parejas nuevas en los últimos 6 meses con relaciones sexuales sin preservativo diferir 6 meses",
-        "Uso de PREP o PEP oral diferir 6 meses para donar sangre",
-        "Uso inyectable de PREP PEP o ART diferir 2 años para donar sangre",
-        "Uso de drogas intravenosas diferimiento permanente para donar sangre",
-        "La evaluación para donar es individual e independiente del género u orientación sexual",
-    ],
-
-    "componentes_de_la_sangre": [
-        "Los glóbulos blancos leucocitos son 4000 a 9000 por milímetro cúbico y defienden contra infecciones",
-        "Los glóbulos rojos eritrocitos son 4.5 a 5.5 millones por milímetro cúbico transportan oxígeno y viven 120 días",
-        "Las plaquetas son 150000 a 400000 por milímetro cúbico y detienen hemorragias",
-        "El plasma contiene 91 por ciento de agua albúmina inmunoglobulinas y factores de coagulación",
-        "Los glóbulos rojos se usan en cirugías accidentes hemorragias trasplantes y anemia",
-        "El plasma se usa en quemaduras y elaboración de hemoderivados",
-        "Las plaquetas se usan en leucemias trasplantes quimioterapia y grandes hemorragias",
-        "Los crioprecipitados se usan en trastornos específicos de la coagulación",
-        "Una donación de sangre puede salvar hasta 3 vidas",
-    ],
-
-    "glosario": [
-        "Donante habitual presenta 2 donaciones en el último año calendario o en los últimos 12 meses",
-        "Donante de reposición es condicionado a donar para reponer stock de un paciente",
-        "Donante voluntario está motivado por acto solidario y altruista con compromiso social",
-        "Donante diferido permanente no cumple en forma permanente los criterios habilitantes",
-        "Donante diferido temporario debe esperar un tiempo determinado antes de poder donar",
-        "El período ventana es el tiempo entre que el agente infeccioso entra al organismo y es detectable",
-        "Hemocomponente es la fracción obtenida por separación física glóbulos rojos plasma plaquetas crioprecipitados",
-        "Hemoderivado es el producto obtenido de la manufactura del plasma albúmina factores de coagulación gammaglobulina",
-        "ITT infecciones transmisibles por transfusión sífilis Chagas brucelosis hepatitis B C VIH HTLV",
-        "Seguridad transfusional es el conjunto de medidas para garantizar la seguridad de transfusiones",
-        "NAT es la técnica de amplificación de ácidos nucleicos que reduce plazos de diferimiento en tatuajes",
-        "Aféresis es la extracción de un componente específico plasma plaquetas requiere donantes de 18 a 65 años",
-        "HEMO 3 es la planilla confidencial donde el donante indica si su sangre puede ser usada, sin ella no puede utilizarse",
-        "El principio de precaución indica que ante duda siempre en favor del receptor y prevalece sobre las normas",
-    ],
-}
+_CORPUS_PATH = os.path.join(os.path.dirname(__file__), "corpus.json")
+with open(_CORPUS_PATH, encoding="utf-8") as _f:
+    _CORPUS_DICT = json.load(_f)
 
 # Aplanar el dict en una lista para TF-IDF, N-gramas y entrenamiento
 CORPUS = [doc for seccion in _CORPUS_DICT.values() for doc in seccion]
@@ -334,6 +165,8 @@ def consulta(data: dict):
     texto = data.get("texto", "").strip()
     origen = data.get("origen", "texto")  # "texto" | "voz"
     texto_transcripto = data.get("texto_transcripto", "")
+
+    texto = nlp.normalizar_coloquialismos(texto)
 
     entidades = nlp.extraer_entidades(texto)
     tokens = nlp.tokenizar(texto)

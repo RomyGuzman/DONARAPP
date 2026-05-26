@@ -191,6 +191,55 @@ class NLPProcessor:
     )
     ADJETIVOS = {"apto", "sano", "enfermo", "reciente", "permanente", "temporal"}
 
+    # Modismos y variantes coloquiales del español rioplatense
+    _AFIRMACIONES = {
+        "dale", "obvio", "claro", "por supuesto", "joya", "re",
+        "exacto", "correcto", "afirmativo", "así es", "asi es",
+        "sip", "sep", "yep", "oka", "ok", "okay", "bueno",
+        "seguro", "obvio que si", "obvio que sí", "claro que si",
+        "claro que sí", "por supuesto que si", "sí claro",
+    }
+    _NEGACIONES = {
+        "nope", "nel", "nah", "para nada", "negativo",
+        "de ninguna manera", "jamás", "jamas", "nanai",
+        "ni en pedo", "para nada", "ni loco", "ni loca",
+    }
+
+    def normalizar_coloquialismos(self, texto: str) -> str:
+        """Colapsa caracteres repetidos y mapea modismos rioplatenses."""
+        texto_lower = texto.strip().lower()
+
+        # Patrones de repetición silábica: siisisisisi / nononono / síísíísí
+        if re.fullmatch(r"(s[ií]+\s*)+", texto_lower):
+            return "sí"
+        if re.fullmatch(r"(no+\s*)+", texto_lower):
+            return "no"
+
+        # Colapsar cualquier carácter consecutivo repetido (siii→si, nooo→no)
+        texto_norm = re.sub(r"(.)\1+", r"\1", texto.strip())
+        texto_lower = texto_norm.lower().strip()
+
+        # Expresión completa es una afirmación o negación conocida
+        for expr in sorted(self._AFIRMACIONES, key=len, reverse=True):
+            if texto_lower == expr:
+                return "sí"
+        for expr in sorted(self._NEGACIONES, key=len, reverse=True):
+            if texto_lower == expr:
+                return "no"
+
+        # Reemplazar modismos dentro de texto más largo
+        for expr in sorted(self._AFIRMACIONES, key=len, reverse=True):
+            texto_norm = re.sub(
+                r"(?<!\w)" + re.escape(expr) + r"(?!\w)",
+                "sí", texto_norm, flags=re.IGNORECASE,
+            )
+        for expr in sorted(self._NEGACIONES, key=len, reverse=True):
+            texto_norm = re.sub(
+                r"(?<!\w)" + re.escape(expr) + r"(?!\w)",
+                "no", texto_norm, flags=re.IGNORECASE,
+            )
+        return texto_norm
+
     def tokenizar(self, texto: str) -> list[str]:
         return re.findall(r"[a-záéíóúüñ]+", texto.lower())
 

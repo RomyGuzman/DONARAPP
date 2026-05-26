@@ -16,7 +16,9 @@ El usuario describe su situación médica ("me hice un tatuaje hace 2 meses") y 
 ┌─────────────────────────────────────────────┐
 │              FRONTEND (Next.js)              │
 │  Lo que ve el usuario en el navegador       │
-│  Archivo principal: frontend/app/page.tsx   │
+│  Carpeta: frontend/app/                     │
+│  Navegación: page.tsx (tabs + header)       │
+│  Lógica: hooks/, components/, types/, lib/ │
 └───────────────────┬─────────────────────────┘
                     │ HTTP (peticiones y respuestas)
                     │ Ej: POST /consulta → respuesta JSON
@@ -58,11 +60,12 @@ El backend es la parte que el usuario **no ve**. Es el programa que recibe la pr
 
 **¿Qué contiene?**
 
-1. **El CORPUS** — una lista de 20 frases sobre donación de sangre. Es la "biblioteca" del sistema. Por ejemplo:
+1. **El CORPUS** — se carga desde `corpus.json`, un archivo con ~130 documentos organizados en 14 secciones temáticas (tatuajes, enfermedades, medicamentos, vacunas, conductas de riesgo, glosario, etc.). Es la "biblioteca" del sistema. Por ejemplo:
    ```
    "Si te hiciste un tatuaje reciente debes esperar 6 meses para donar sangre"
    "El dengue requiere esperar 28 días después de recuperarte para donar"
    ```
+   Para ampliar el corpus, basta con editar `corpus.json` y reiniciar el servidor — sin tocar código Python.
 
 2. **CONSULTAS_EVALUACION** — 10 consultas de prueba con sus documentos relevantes. Se usan para medir qué tan bien funciona el buscador (Precisión, Recall, F1).
 
@@ -82,8 +85,10 @@ El backend es la parte que el usuario **no ve**. Es el programa que recibe la pr
    | `GET /tts` | Convierte texto a audio MP3 (síntesis de voz) |
    | `POST /whisper` | Recibe un audio grabado y lo transcribe a texto |
    | `GET /historial` | Devuelve las últimas consultas guardadas |
+   | `GET /stats` | Métricas básicas: total, aptos, no_aptos, PP, IR, tiempo |
    | `GET /stats/completo` | Devuelve todas las estadísticas para el Dashboard |
-   | `GET /ngramas/tabla` | Devuelve la tabla de bigramas/trigramas |
+   | `GET /ngramas/tabla_bigramas` | Devuelve los top N bigramas por probabilidad |
+   | `GET /ngramas/tabla_trigramas` | Devuelve los top N trigramas por probabilidad |
    | `GET /ngramas/perplejidad` | Calcula qué tan "rara" es una frase |
    | `GET /ngramas/siguiente` | Predice la siguiente palabra |
    | `GET /ngramas/generar` | Genera texto automáticamente |
@@ -93,6 +98,7 @@ El backend es la parte que el usuario **no ve**. Es el programa que recibe la pr
 
 **¿Cómo se inicia?**
 ```powershell
+cd C:\DONARVERSION1\backend
 venv\Scripts\activate
 python -m uvicorn main:app --reload
 ```
@@ -379,15 +385,15 @@ Guarda cada consulta que hace un usuario.
 | id | INTEGER | Identificador único |
 | texto | TEXT | Lo que escribió el usuario |
 | resultado | TEXT | apto / no_apto_temporal / etc. |
-| respuesta | TEXT | El mensaje que recibió |
+| motivo | TEXT | El mensaje de respuesta que recibió el usuario |
+| texto_transcripto | TEXT | Transcripción ASR (si fue por voz/whisper) |
 | intencion | TEXT | querer_donar / informacion / etc. |
-| entidades | TEXT | JSON con las entidades detectadas |
-| perplejidad | REAL | Qué tan rara fue la frase |
-| fuera_de_dominio | INTEGER | 1 si perplejidad > 60 |
-| score_ir | REAL | Similitud con el documento más relevante |
-| tiempo_respuesta_ms | INTEGER | Cuántos milisegundos tardó |
+| entidades | TEXT | Entidades detectadas (serializado como texto) |
+| perplejidad | REAL | Qué tan rara fue la frase para el modelo |
+| score_ir | REAL | Similitud coseno con el documento más relevante |
+| tiempo_respuesta_ms | REAL | Cuántos milisegundos tardó el backend |
 | origen | TEXT | "texto", "voz" o "whisper" |
-| fecha | TEXT | Cuándo se hizo la consulta |
+| fecha | TEXT | Cuándo se hizo la consulta (ISO 8601) |
 
 #### Tabla `metricas`
 Guarda evaluaciones de WER y otras métricas.
@@ -426,6 +432,16 @@ Para instalarlas todas: `pip install -r requirements.txt`
 
 ---
 
+### `backend/corpus.json` — El corpus de documentos
+
+**¿Qué es?** El archivo que contiene los documentos de conocimiento del sistema. Al iniciar el servidor, `main.py` lo carga y aplana todas las secciones en una lista única que se usa para TF-IDF y N-gramas.
+
+**¿Por qué un archivo JSON y no código Python?** Permite ampliar el corpus editando solo el JSON, sin tocar código. Al reiniciar el servidor, los cambios se incorporan automáticamente.
+
+**Estructura:** 14 secciones temáticas (`originales`, `requisitos`, `frecuencia`, `antes_de_donar`, `durante_la_donacion`, `despues_de_donar`, `medicamentos_diferimiento_permanente`, `medicamentos_diferimiento_transitorio`, `medicamentos_sin_diferimiento`, `vacunas_diferir_1_mes`, `vacunas_sin_diferimiento`, `conductas_de_riesgo`, `componentes_de_la_sangre`, `glosario`) con un total de ~130 documentos.
+
+---
+
 ### `backend/indice_tfidf.json` — El índice persistido
 
 **¿Qué es?** El índice TF-IDF guardado en disco. Cuando el servidor arranca, primero intenta cargar este archivo en vez de recalcular el índice desde cero. Si no existe, lo calcula y lo guarda.
@@ -436,15 +452,31 @@ Para instalarlas todas: `pip install -r requirements.txt`
 
 ## PARTE 2 — El Frontend (lo que ve el usuario)
 
-El frontend es la interfaz visual. Está hecho con **Next.js** (un framework de React) y **TypeScript**. El único archivo que importa entender es `page.tsx`.
+El frontend es la interfaz visual. Está hecho con **Next.js** (un framework de React) y **TypeScript**. El código está distribuido en varios archivos dentro de `frontend/app/`:
+
+```
+frontend/app/
+├── page.tsx                    ← navegación: header, tabs, footer (~128 líneas)
+├── layout.tsx                  ← layout raíz: fuente, metadata, globals.css
+├── globals.css                 ← estilos globales, modo claro forzado
+├── types/index.ts              ← interfaces TypeScript: Consulta, MensajeChat, FaseChat
+├── lib/
+│   ├── api.ts                  ← URL del backend, PP_UMBRAL, fetchJSON, playTTS
+│   └── tokens.ts               ← design tokens: btn, inp, tbl
+├── hooks/
+│   ├── useChatFlow.ts          ← lógica completa del cuestionario guiado (30+ fases)
+│   └── useIsMobile.ts          ← detección responsive (breakpoint 768px)
+└── components/
+    ├── ui/                     ← Card, SectionTitle, StatCard, PieChart, InfoTag
+    ├── chat/                   ← BotBurbuja, UsuarioBurbuja
+    └── tabs/                   ← TabConsulta, TabDashboard, TabNgramas, TabIR, TabWER
+```
 
 ---
 
-### `frontend/app/page.tsx` — La interfaz completa
+### `frontend/app/page.tsx` — La navegación
 
-**¿Qué es?** Es el único archivo de interfaz. Contiene absolutamente todo lo que ve el usuario: las 5 pestañas, todos los componentes visuales, y la lógica de interacción.
-
-**¿Por qué un solo archivo?** Para proyectos educativos es más fácil tener todo junto y poder leerlo de corrido.
+**¿Qué es?** El punto de entrada de la aplicación. Contiene el header sticky, la barra de navegación entre las 5 pestañas, el menú desplegable "Herramientas", y el footer. No tiene lógica de negocio — solo decide qué Tab mostrar según la pestaña activa y pasa `isMobile` a cada uno.
 
 #### Las 5 pestañas de la aplicación
 
@@ -452,37 +484,28 @@ El frontend es la interfaz visual. Está hecho con **Next.js** (un framework de 
 
 **Pestaña 🩸 Consulta** — La función principal
 
-Es donde el usuario hace su consulta. Contiene:
+Implementada en `components/tabs/TabConsulta.tsx`. Contiene dos paneles que se expanden y contraen con animación (`flex: 7` activo / `flex: 3` inactivo):
 
-- **Campo de texto** — donde se escribe la situación médica. Tiene un botón ✕ para limpiar y se vacía automáticamente al enviar. Si se intenta enviar vacío, aparece un borde rojo y un mensaje de error.
+**Panel Texto (azul):**
+- Campo de texto para escribir la situación médica
+- Botón "Consultar" → POST `/consulta`
+- Toggle TTS para reproducción automática de la respuesta
+- Historial de mensajes con burbujas `BotBurbuja` y `UsuarioBurbuja`
+- Cuestionario guiado (hook `useChatFlow`) con 30+ fases: edad, peso, sexo, condiciones médicas
 
-- **Botón "Consultar"** — envía el texto al backend (POST /consulta) y muestra el resultado.
+**Panel Voz (violeta):**
+- Botón "Consulta por voz" — Web Speech API, Google ASR, requiere internet (Chrome/Edge)
+- Botón "Voz sin internet (Whisper)" — graba con `MediaRecorder`, envía a POST `/whisper`
 
-- **Botón "Consulta por voz" (Google ASR)** — usa la Web Speech API del navegador (disponible en Chrome/Edge). Graba la voz del usuario y la transcribe a texto en tiempo real usando los servidores de Google. Requiere internet.
+El veredicto se muestra como burbuja `BotBurbuja` con colores según el tipo:
+- ✅ Verde → apto
+- ⏳ Rojo → no apto temporal
+- 🚫 Violeta → no apto permanente
+- 🏥 Azul → consultar médico
+- ⚠️ Amarillo → fuera de dominio
+- ℹ️ Gris → información
 
-- **Botón "Voz sin internet (Whisper)"** — graba el audio con el micrófono del dispositivo, lo envía al backend, y el backend usa el modelo Whisper tiny (instalado localmente, sin internet) para transcribirlo.
-
-- **Toggle TTS** — activa o desactiva la síntesis de voz. Si está activo, cuando llega la respuesta se reproduce en audio (usando gTTS en el backend).
-
-- **ResultadoCard** — muestra el veredicto con color e ícono:
-  - ✅ Verde → apto
-  - ⏳ Rojo → no apto temporal
-  - 🚫 Violeta → no apto permanente
-  - 🏥 Azul → consultar médico
-  - ⚠️ Amarillo → fuera de dominio
-  - ℹ️ Gris → información
-
-- **Panel de detalles técnicos** — muestra todo el análisis:
-  - Entidades detectadas (NER)
-  - POS tagging de cada token
-  - Perplejidad de la frase
-  - Score IR
-  - Documentos más relevantes del corpus
-  - Tiempo de procesamiento
-
-- **Historial** — tabla con las últimas 20 consultas de la sesión actual.
-
-- **Acerca de** — panel desplegable con explicaciones simples de cada tecnología (Google ASR, Whisper, TTS, Perplejidad, TF-IDF, WER).
+Cada respuesta incluye un panel colapsable con el análisis técnico: NER, POS tagging, perplejidad, score IR, documentos relevantes y tiempo de respuesta.
 
 ---
 
@@ -538,17 +561,19 @@ Contiene:
 
 ---
 
-#### Componentes reutilizables dentro de `page.tsx`
+#### Componentes reutilizables
 
-| Componente | Para qué sirve |
-|------------|----------------|
-| `useIsMobile()` | Hook que detecta si el ancho de pantalla es menor a 768px para adaptar el diseño |
-| `InfoTag` | El botón `?` con tooltip flotante que explica términos técnicos |
-| `PieChart` | Gráfico de torta dibujado con SVG sin librerías externas |
-| `Card` | Contenedor blanco con sombra y bordes redondeados |
-| `SectionTitle` | Título de sección con línea separadora |
-| `StatCard` | Tarjeta de estadística con número grande y color |
-| `ResultadoCard` | Muestra el veredicto con el color e ícono correspondiente |
+| Componente | Archivo | Para qué sirve |
+|------------|---------|----------------|
+| `useIsMobile()` | `hooks/useIsMobile.ts` | Hook que detecta si el ancho es menor a 768px |
+| `useChatFlow()` | `hooks/useChatFlow.ts` | Hook con toda la lógica del cuestionario guiado |
+| `InfoTag` | `components/ui/InfoTag.tsx` | Botón `?` con tooltip flotante |
+| `PieChart` | `components/ui/PieChart.tsx` | Gráfico de torta dibujado con SVG puro |
+| `Card` | `components/ui/Card.tsx` | Contenedor blanco con sombra y bordes redondeados |
+| `SectionTitle` | `components/ui/Card.tsx` | Título de sección con línea separadora |
+| `StatCard` | `components/ui/Card.tsx` | Tarjeta de estadística con número grande y color |
+| `BotBurbuja` | `components/chat/BotBurbuja.tsx` | Burbuja del bot con panel de análisis técnico |
+| `UsuarioBurbuja` | `components/chat/UsuarioBurbuja.tsx` | Presentación pura del mensaje del usuario |
 
 ---
 
@@ -643,7 +668,7 @@ Una función especial que empieza con `use` y agrega comportamiento a un compone
 Usuario escribe "tuve dengue hace 2 meses"
          │
          ▼
-   [page.tsx] consultar()
+   [TabConsulta.tsx / useChatFlow.ts]
    POST /consulta {"texto": "tuve dengue hace 2 meses"}
          │
          ▼
@@ -668,7 +693,7 @@ Usuario escribe "tuve dengue hace 2 meses"
          └──► Respuesta JSON completa al frontend
                    │
                    ▼
-         [page.tsx] muestra ResultadoCard
+         [BotBurbuja.tsx] muestra veredicto
          ✅ PODÉS DONAR
          "Con 2 meses desde el episodio de dengue,
           ya podrías donar."

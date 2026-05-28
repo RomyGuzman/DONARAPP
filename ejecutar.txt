@@ -1,1 +1,0 @@
-powershell -ExecutionPolicy Bypass -File C:\DONARVERSION1\run-dev.ps1

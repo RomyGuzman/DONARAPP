@@ -36,40 +36,33 @@ Un corpus es una colección de textos del dominio específico que alimenta todos
 
 El corpus cumple dos roles:
 
-**Corpus de documentos** (para el motor de búsqueda TF-IDF): 20 textos sobre condiciones que afectan la donación. Cuando el usuario hace una consulta, el sistema busca los documentos más similares y los usa como referencia.
+**Corpus de documentos** (para el motor de búsqueda TF-IDF): todos los textos del archivo `corpus.json`. Cuando el usuario hace una consulta, el sistema busca los documentos más similares y los usa como referencia.
 
-**Corpus de entrenamiento** (para el modelo de N-gramas): los mismos 20 documentos más 11 frases coloquiales que simulan cómo escribiría un usuario real. Permite que el modelo aprenda las probabilidades de transición entre palabras en el contexto de donación de sangre.
+**Corpus de entrenamiento** (para el modelo de N-gramas): los mismos documentos más 11 frases coloquiales que simulan cómo escribiría un usuario real. Permite que el modelo aprenda las probabilidades de transición entre palabras en el contexto de donación de sangre.
 
-### Los 20 documentos del corpus
+### Estructura del corpus — `backend/corpus.json`
 
-| # | Documento |
-|---|-----------|
-| 0 | Si te hiciste un tatuaje reciente debes esperar 6 meses para donar sangre |
-| 1 | Personas con tatuajes pueden donar luego de 6 meses del procedimiento |
-| 2 | Para donar sangre debes estar sano y sin infecciones activas |
-| 3 | Después de tomar antibióticos debes esperar al menos 7 días para donar |
-| 4 | Si tomaste penicilina o amoxicilina debes esperar una semana |
-| 5 | Luego de una cirugía el tiempo de espera depende del tipo de operación |
-| 6 | Una cirugía menor requiere esperar al menos 6 meses para donar |
-| 7 | La hepatitis B o C impide la donación de sangre de forma permanente |
-| 8 | El dengue requiere esperar 28 días después de recuperarte para donar |
-| 9 | El COVID-19 requiere esperar 14 días después de la recuperación completa |
-| 10 | Los piercing también requieren esperar 6 meses igual que los tatuajes |
-| 11 | La diabetes tipo 1 impide donar sangre de forma permanente |
-| 12 | La hipertensión controlada no impide la donación si los valores son normales |
-| 13 | Debes pesar más de 50 kilos para poder donar sangre |
-| 14 | La edad mínima para donar sangre es 18 años y la máxima 65 años |
-| 15 | Debes estar en ayunas de al menos 4 horas antes de donar |
-| 16 | Si tuviste fiebre en los últimos 7 días no podés donar sangre |
-| 17 | El VIH o SIDA impide la donación de sangre de forma permanente |
-| 18 | Se puede donar sangre cada 3 meses en el caso de los hombres |
-| 19 | Las mujeres pueden donar sangre cada 4 meses como mínimo |
+El corpus se carga desde `corpus.json` al iniciar el servidor. Está organizado en 14 secciones temáticas que se aplanan en una lista única para TF-IDF y N-gramas:
 
-### ¿Qué se podría mejorar?
+| Sección | Docs | Contenido |
+|---------|------|-----------|
+| `originales` | 23 | Documentos base: tatuajes, enfermedades, medicamentos, requisitos generales |
+| `requisitos` | 10 | Requisitos físicos para donar: peso, temperatura, hemoglobina, tensión, pulso |
+| `frecuencia` | 6 | Intervalos entre donaciones: hombres, mujeres, jóvenes, aféresis |
+| `antes_de_donar` | 5 | Instrucciones previas: no ayunas, hidratarse, vestimenta cómoda |
+| `durante_la_donacion` | 5 | Instrucciones durante: posición, no mover el brazo, avisar molestias |
+| `despues_de_donar` | 8 | Cuidados post-donación: refrigerio, apósito, evitar ejercicio |
+| `medicamentos_diferimiento_permanente` | 10 | Medicamentos que inhabilitan de forma permanente |
+| `medicamentos_diferimiento_transitorio` | 9 | Medicamentos con período de espera (1 mes a 3 años) |
+| `medicamentos_sin_diferimiento` | 9 | Medicamentos que no requieren espera |
+| `vacunas_diferir_1_mes` | 7 | Vacunas de virus vivo que requieren 1 mes de espera |
+| `vacunas_sin_diferimiento` | 10 | Vacunas sin diferimiento (con excepciones por exposición) |
+| `conductas_de_riesgo` | 5 | Conductas sexuales y uso de drogas que generan diferimiento |
+| `componentes_de_la_sangre` | 9 | Glóbulos, plasma, plaquetas — qué son y para qué se usan |
+| `glosario` | 14 | Términos técnicos: donante habitual, período ventana, NAT, HEMO 3 |
+| **Total** | **~130** | |
 
-- Ampliar a 100+ documentos con protocolos reales del Ministerio de Salud de Argentina.
-- Agregar variantes coloquiales: "me vacuné", "estoy con gripe", "tomo metformina".
-- Permitir cargar nuevos documentos desde el panel de administración sin tocar el código.
+El corpus se puede ampliar editando `corpus.json` sin modificar ningún archivo Python. Al reiniciar el servidor se recarga automáticamente y se reconstruye el índice TF-IDF.
 
 ---
 
@@ -716,7 +709,8 @@ La aplicación usa **SQLite** — motor de base de datos relacional que guarda t
 | GET | `/ngramas/generar` | `inicio=...`, `max_palabras=12`, `k=1.0` | Genera texto a partir de una frase inicial |
 | GET | `/buscar` | `q=...`, `top_k=5` | Búsqueda TF-IDF en el corpus |
 | GET | `/ir/metricas` | — | P/R/F1 sobre 10 consultas de evaluación |
-| GET | `/stats/completo` | — | Métricas globales + IR + WER combinadas |
+| GET | `/stats` | — | Métricas básicas: total, aptos, no_aptos, PP, IR, tiempo promedio |
+| GET | `/stats/completo` | — | Métricas globales + IR + WER combinadas (para el Dashboard) |
 | GET | `/stats_diario` | — | Consultas agrupadas por día |
 | GET | `/stats_tipos` | — | Distribución por tipo de resultado |
 | GET | `/stats_top_consultas` | — | Top 10 consultas más frecuentes |
@@ -732,23 +726,25 @@ La aplicación usa **SQLite** — motor de base de datos relacional que guarda t
 
 ```bash
 # Backend
-cd C:\DONAR-APP\backend
+cd C:\DONARVERSION1\backend
 python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
 
 # Frontend
-cd C:\DONAR-APP\frontend
+cd C:\DONARVERSION1\frontend
 npm install
 ```
 
 ### Ejecución (cada vez)
 
-Abrir **dos terminales de PowerShell**:
+Ver [activar_aplicacion.md](activar_aplicacion.md) para las instrucciones paso a paso.
+
+Resumen rápido — abrir **dos terminales de PowerShell**:
 
 ```powershell
 # Terminal 1 — Backend
-cd C:\DONAR-APP\backend
+cd C:\DONARVERSION1\backend
 venv\Scripts\activate
 python -m uvicorn main:app --reload
 # Esperar: "Application startup complete."
@@ -756,7 +752,7 @@ python -m uvicorn main:app --reload
 
 ```powershell
 # Terminal 2 — Frontend
-cd C:\DONAR-APP\frontend
+cd C:\DONARVERSION1\frontend
 npm run dev
 # Esperar: "Ready on http://localhost:3000"
 ```
@@ -772,25 +768,41 @@ Abrir en el navegador (Chrome o Edge recomendado): **http://localhost:3000**
 | gTTS | 2.5.4 | Text-to-Speech (síntesis de voz) |
 | openai-whisper | latest | Reconocimiento de voz offline |
 | python-multipart | latest | Recepción de archivos de audio |
-| SQLAlchemy | 2.0.49 | ORM (no usado directamente, pero requerido) |
 | pydantic | 2.13.2 | Validación de datos en FastAPI |
 | requests | 2.33.1 | Cliente HTTP |
 
 ### Arquitectura del proyecto
 
 ```
-DONAR-APP/
+DONARVERSION1/
 ├── backend/
-│   ├── main.py          ← API FastAPI, corpus, endpoints, DB
-│   ├── nlp.py           ← NER, POS tagging, tokenización, intenciones
-│   ├── ngrams.py        ← Modelo bigrama/trigrama, Add-k, perplejidad
-│   ├── search.py        ← Motor TF-IDF, similitud coseno, P/R/F1
-│   ├── rules.py         ← Reglas de elegibilidad (basadas en entidades NLP)
-│   ├── wer.py           ← Cálculo WER con Levenshtein, 12 frases de prueba
-│   ├── indice_tfidf.json← Índice TF-IDF persistido (generado automáticamente)
-│   ├── donar.db         ← Base de datos SQLite
+│   ├── main.py               ← API FastAPI, carga corpus, endpoints, DB
+│   ├── nlp.py                ← NER, POS tagging, tokenización, intenciones
+│   ├── ngrams.py             ← Modelo bigrama/trigrama, Add-k, perplejidad
+│   ├── search.py             ← Motor TF-IDF, similitud coseno, P/R/F1
+│   ├── rules.py              ← Reglas de elegibilidad (basadas en entidades NLP)
+│   ├── wer.py                ← Cálculo WER con Levenshtein, 12 frases de prueba
+│   ├── evaluar_wer.py        ← Script auxiliar para evaluar WER con hipótesis simuladas
+│   ├── corpus.json           ← Corpus (~130 docs, 14 secciones temáticas)
+│   ├── indice_tfidf.json     ← Índice TF-IDF persistido (generado automáticamente)
+│   ├── donar.db              ← Base de datos SQLite
+│   ├── database.py           ← Configuración SQLAlchemy (versión legacy, no importado)
+│   ├── models.py             ← Modelos ORM (versión legacy, no importado)
 │   └── requirements.txt
-└── frontend/
-    └── app/
-        └── page.tsx     ← Aplicación React completa (5 tabs, responsiva)
+├── frontend/
+│   └── app/
+│       ├── page.tsx          ← Navegación: header, tabs, footer (~128 líneas)
+│       ├── layout.tsx        ← Layout raíz (fuente, metadata, globals.css)
+│       ├── globals.css       ← Estilos globales, modo claro forzado
+│       ├── types/index.ts    ← Interfaces TypeScript: Consulta, MensajeChat, FaseChat
+│       ├── lib/api.ts        ← URL del backend, PP_UMBRAL, fetchJSON, playTTS
+│       ├── lib/tokens.ts     ← Design tokens: btn, inp, tbl
+│       ├── hooks/useChatFlow.ts   ← Lógica completa del cuestionario guiado
+│       ├── hooks/useIsMobile.ts   ← Detección responsive (breakpoint 768px)
+│       ├── components/ui/    ← Card, SectionTitle, StatCard, PieChart, InfoTag
+│       ├── components/chat/  ← BotBurbuja, UsuarioBurbuja
+│       └── components/tabs/  ← TabConsulta, TabDashboard, TabNgramas, TabIR, TabWER
+├── README_TECNICO.md
+├── README_FUNCIONAL.md
+└── activar_aplicacion.md
 ```

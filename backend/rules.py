@@ -1,6 +1,29 @@
+import re
 from nlp import NLPProcessor
 
 _nlp = NLPProcessor()
+
+
+def _levenshtein(a: str, b: str) -> int:
+    if len(a) > len(b):
+        a, b = b, a
+    dp = list(range(len(a) + 1))
+    for c in b:
+        prev, dp[0] = dp[0], dp[0] + 1
+        for i, ca in enumerate(a):
+            prev, dp[i + 1] = dp[i + 1], min(dp[i] + 1, dp[i + 1] + 1, prev + (ca != c))
+    return dp[-1]
+
+
+def _fuzzy(texto: str, keywords: list, umbral: int = 2) -> bool:
+    """True si algún token del texto está a ≤ umbral ediciones de algún keyword."""
+    for token in texto.split():
+        if len(token) < 4:
+            continue
+        for kw in keywords:
+            if abs(len(token) - len(kw)) <= umbral and _levenshtein(token, kw) <= umbral:
+                return True
+    return False
 
 
 def _meses_texto(meses: float) -> str:
@@ -37,9 +60,25 @@ def _evaluar_tiempo(tiempo_meses, espera_meses, nombre_condicion):
 
 
 def evaluar(texto: str) -> dict:
+    texto = _nlp.normalizar_coloquialismos(texto)
     entidades = _nlp.extraer_entidades(texto)
-    tipo, tiempo_meses, peso, edad = _nlp.interpretar(entidades)
+    _, tiempo_meses, peso, edad = _nlp.interpretar(entidades)
     t = texto.lower()
+
+    # ── RESPUESTA SIN CONTEXTO (solo sí / no / modismo) ──────────────────────
+    if t.strip() in ("sí", "si", "no"):
+        return _consul(
+            "Entendí tu respuesta, pero necesito más contexto para ayudarte. "
+            "Contame tu situación completa. Por ejemplo: "
+            "'Me hice un tatuaje hace 2 meses, ¿puedo donar?' o "
+            "'Tomo antibióticos, ¿tengo que esperar?'",
+            opciones=[
+                "tatuaje o piercing",
+                "medicamento o vacuna",
+                "enfermedad o cirugía",
+                "requisitos para donar",
+            ],
+        )
 
     # ── PESO ─────────────────────────────────────────────────────────────────
     if peso is not None or any(k in t for k in ["peso", "kg", "kilo", "kilos", "pesar"]):
@@ -170,7 +209,7 @@ def evaluar(texto: str) -> dict:
     # CARDIOPATÍA CONGÉNITA / FIBRILACIÓN AURICULAR
     # ═════════════════════════════════════════════════════════════════════════
 
-    if any(k in t for k in ["cia", "civ", "cardiopatia congenita", "cardiopatía congénita"]):
+    if re.search(r'\bcia\b', t) or re.search(r'\bciv\b', t) or "cardiopatia congenita" in t or "cardiopatía congénita" in t:
         if any(k in t for k in ["operad", "corregid", "cerrad"]):
             return _apto(
                 "La cardiopatía congénita CIA/CIV operada no genera diferimiento. Podés donar."
@@ -262,7 +301,7 @@ def evaluar(texto: str) -> dict:
     # ═════════════════════════════════════════════════════════════════════════
 
     if any(k in t for k in ["quetiapina", "risperidona", "olanzapina", "haloperidol", "clozapina", "aripiprazol"]):
-        return _perm(f"Los antipsicóticos generan diferimiento permanente.")
+        return _perm("Los antipsicóticos generan diferimiento permanente.")
 
     if any(k in t for k in ["anticoagulante", "warfarina", "acenocumarol", "rivaroxaban", "apixaban"]):
         return _perm("Los anticoagulantes generan diferimiento permanente.")
@@ -302,6 +341,120 @@ def evaluar(texto: str) -> dict:
 
     if any(k in t for k in ["ansiolítico", "antidepresivo", "tranquilizante", "clonazepam", "alprazolam", "sertralina", "fluoxetina"]):
         return _apto("Los ansiolíticos y antidepresivos no generan diferimiento. Podés donar.")
+
+    if any(k in t for k in ["metotrexato", "methotrexate"]):
+        return _evaluar_tiempo(tiempo_meses, 3, "el tratamiento con metotrexato")
+
+    if any(k in t for k in ["litio", "carbonato de litio"]):
+        return _consul(
+            "El litio en sí no genera diferimiento, pero la condición que lo requiere (trastorno bipolar severo, etc.) "
+            "puede generarlo. Consultá directamente en el centro de donación.",
+            opciones=["trastorno bipolar controlado"],
+        )
+
+    if any(k in t for k in ["estatina", "atorvastatina", "rosuvastatina", "simvastatina", "colesterol alto", "dislipemia"]):
+        return _apto(
+            "Las estatinas para el colesterol no generan diferimiento. "
+            "Si el colesterol está controlado y te sentís bien, podés donar."
+        )
+
+    if any(k in t for k in ["levotiroxina", "eutirox", "tiroidea", "tiroideo", "hipotiroidismo", "hipertiroidismo", "tiroides"]):
+        if any(k in t for k in ["controlado", "controlada", "normal", "tratamiento"]):
+            return _apto(
+                "El hipotiroidismo o hipertiroidismo controlado con medicación no genera diferimiento. Podés donar."
+            )
+        if any(k in t for k in ["descompensado", "descontrolado", "alto", "bajo"]):
+            return _consul(
+                "Si la tiroides está descompensada, diferir hasta normalizarse. "
+                "Consultá en el centro de donación con valores recientes de TSH."
+            )
+        return _consul(
+            "Las enfermedades de tiroides controladas no generan diferimiento. "
+            "¿Está tu tiroides controlada con medicación?",
+            opciones=["tiroides controlada con medicación", "tiroides descompensada"],
+        )
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # ENFERMEDADES AUTOINMUNES
+    # ═════════════════════════════════════════════════════════════════════════
+
+    if any(k in t for k in ["lupus", "les", "lupus eritematoso"]):
+        if any(k in t for k in ["remision", "remisión", "controlado", "controlada", "estable"]):
+            return _consul(
+                "El lupus en remisión estable puede permitir la donación, "
+                "pero depende del órgano comprometido y el tratamiento. "
+                "Consultá en el centro de donación con tu historia clínica.",
+            )
+        return _perm("El lupus eritematoso sistémico activo genera diferimiento permanente.")
+
+    if any(k in t for k in ["artritis reumatoide", "artritis reumatoidea"]):
+        if any(k in t for k in ["metotrexato", "leflunomida", "rituximab", "infliximab", "adalimumab", "etanercept", "biologico", "biológico"]):
+            return _evaluar_tiempo(tiempo_meses, 3, "el tratamiento biológico o metotrexato para artritis reumatoide")
+        if any(k in t for k in ["ibuprofeno", "naproxeno", "aine", "antiinflamatorio"]):
+            return _apto(
+                "La artritis reumatoide tratada solo con AINEs (ibuprofeno, naproxeno) "
+                "no genera diferimiento. Podés donar."
+            )
+        return _consul(
+            "¿Qué tratamiento tomás para la artritis reumatoide? "
+            "Solo AINEs (ibuprofeno, naproxeno): PODÉS DONAR. "
+            "Metotrexato o biológicos: diferimiento de 3 meses.",
+            opciones=["artritis con AINEs", "artritis con metotrexato o biológico"],
+        )
+
+    if any(k in t for k in ["esclerosis multiple", "esclerosis múltiple"]):
+        if any(k in t for k in ["interferon", "interferón", "natalizumab", "ocrelizumab", "siponimod", "fingolimod"]):
+            return _perm("Los tratamientos modificadores de la esclerosis múltiple generan diferimiento permanente.")
+        return _consul(
+            "La esclerosis múltiple sin tratamiento modificador activo puede permitir donar "
+            "en períodos de remisión. Consultá en el centro con tu historia clínica.",
+        )
+
+    if any(k in t for k in ["fibromialgia"]):
+        return _apto(
+            "La fibromialgia sin tratamiento inmunosupresor no genera diferimiento. Podés donar."
+        )
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # HEMOFILIA / INSUFICIENCIA RENAL / TRASPLANTE
+    # ═════════════════════════════════════════════════════════════════════════
+
+    if any(k in t for k in ["hemofilia", "hemofilico", "hemofílico", "factor viii", "factor ix"]):
+        return _perm("La hemofilia genera diferimiento permanente.")
+
+    if any(k in t for k in ["dialisis", "diálisis", "hemodiálisis", "hemodialisis", "peritoneal"]):
+        return _perm("La diálisis genera diferimiento permanente para donar sangre.")
+
+    if any(k in t for k in ["insuficiencia renal", "renal cronico", "renal crónico", "nefropatia", "nefropatía"]):
+        return _consul(
+            "La insuficiencia renal sin diálisis requiere evaluación médica antes de donar. "
+            "Consultá en el centro de donación con tus análisis recientes de función renal (creatinina, urea)."
+        )
+
+    if any(k in t for k in ["trasplante", "transplante"]):
+        if any(k in t for k in ["medula", "médula", "progenitores", "hematopoyetico", "hematopoyético"]):
+            return _evaluar_tiempo(tiempo_meses, 24, "el trasplante de médula ósea/progenitores hematopoyéticos")
+        return _perm(
+            "El trasplante de órganos sólidos (riñón, hígado, corazón, etc.) "
+            "genera diferimiento permanente por el tratamiento inmunosupresor."
+        )
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # CONDUCTAS DE RIESGO
+    # ═════════════════════════════════════════════════════════════════════════
+
+    if any(k in t for k in ["droga", "drogas", "heroina", "heroína", "cocaina", "cocaína"]):
+        if any(k in t for k in ["inyectable", "inyectado", "jeringa", "endovenoso", "intravenoso", "pinchado"]):
+            return _perm("El uso de drogas inyectables genera diferimiento permanente.")
+        return _consul(
+            "¿Las drogas fueron inyectables (jeringa/aguja)? "
+            "Si fueron inyectables: NO PODÉS DONAR (permanente). "
+            "Si fueron por otra vía: consultá en el centro según el tiempo transcurrido.",
+            opciones=["drogas inyectables", "drogas no inyectables"],
+        )
+
+    if any(k in t for k in ["relacion sexual", "relación sexual", "hsh", "sexo sin proteccion", "sexo sin protección"]):
+        return _evaluar_tiempo(tiempo_meses, 4, "la última relación sexual de riesgo sin protección")
 
     # ═════════════════════════════════════════════════════════════════════════
     # DIABETES
@@ -470,10 +623,25 @@ def evaluar(texto: str) -> dict:
         return _evaluar_tiempo(tiempo_meses, 6, "el tratamiento con Dutasteride")
 
     if any(k in t for k in ["tetraciclina", "doxiciclina", "eritromicina"]):
-        return _apto(f"Ese antibiótico no genera diferimiento. Podés donar.")
+        return _apto("Ese antibiótico no genera diferimiento. Podés donar.")
 
-    if any(k in t for k in ["antibiótico", "antibiotico", "penicilina", "amoxicilina"]):
+    _KW_ANTIBIOTICO = ["antibiotico", "antibiótico", "penicilina", "amoxicilina"]
+    if any(k in t for k in _KW_ANTIBIOTICO) or _fuzzy(t, _KW_ANTIBIOTICO):
         return _evaluar_tiempo(tiempo_meses, 0.25, "el tratamiento con antibióticos")
+
+    _KW_AINE = [
+        "ibuprofeno", "naproxeno", "diclofenac", "diclofenaco",
+        "paracetamol", "acetaminofen", "acetaminofén",
+        "aspirina", "acido acetilsalicilico", "ácido acetilsalicílico",
+        "aine", "antiinflamatorio",
+    ]
+    if any(k in t for k in _KW_AINE) or _fuzzy(t, _KW_AINE):
+        return _apto(
+            "El ibuprofeno, paracetamol, aspirina y otros antiinflamatorios (AINEs) "
+            "no generan diferimiento para donar sangre. "
+            "Si los tomás por una condición crónica (artritis, etc.), "
+            "esa condición puede tener sus propias restricciones — consultá en el centro."
+        )
 
     # ═════════════════════════════════════════════════════════════════════════
     # CIRUGÍAS
@@ -559,7 +727,12 @@ def evaluar(texto: str) -> dict:
     if any(k in t for k in ["gripe", "influenza"]):
         return _evaluar_tiempo(tiempo_meses, 0.25, "la gripe")
 
+    if any(k in t for k in ["diarrea", "vómito", "vomito", "náusea", "nausea"]) and "fiebre" not in t:
+        return _evaluar_tiempo(tiempo_meses, 0.5, "la diarrea u otros síntomas digestivos")
+
     if "fiebre" in t:
+        if any(k in t for k in ["diarrea", "vómito", "vomito", "síntoma", "sintoma", "malestar"]):
+            return _evaluar_tiempo(tiempo_meses, 0.5, "la fiebre o diarrea")
         return _evaluar_tiempo(tiempo_meses, 0.5, "la fiebre")
 
     if "anemia" in t:
@@ -618,8 +791,6 @@ def evaluar(texto: str) -> dict:
 
     # ── FALLBACK ──────────────────────────────────────────────────────────────
     return _info(
-        "Podés consultarme sobre: tatuajes, piercings, botox, medicamentos, vacunas, "
-        "cirugías, enfermedades (dengue, hepatitis, VIH, Chagas, tuberculosis, epilepsia, "
-        "talasemia, psoriasis, asma, paludismo), diabetes, parto, transfusiones, "
-        "edad, peso y frecuencia de donación."
+        "No entendí tu consulta. Podés preguntarme sobre medicamentos, enfermedades, "
+        "procedimientos médicos o requisitos para donar sangre."
     )

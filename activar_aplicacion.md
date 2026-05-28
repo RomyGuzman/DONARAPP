@@ -9,7 +9,7 @@ Necesitás tener **dos ventanas de PowerShell abiertas** al mismo tiempo: una pa
 1. Abrí PowerShell
 2. Navegá a la carpeta del backend:
    ```powershell
-   cd C:\DONAR-APP\backend
+   cd C:\DONARVERSION1\backend
    ```
 3. Activá el entorno virtual:
    ```powershell
@@ -37,7 +37,7 @@ Necesitás tener **dos ventanas de PowerShell abiertas** al mismo tiempo: una pa
 1. Abrí una segunda ventana de PowerShell (sin cerrar la primera)
 2. Navegá a la carpeta del frontend:
    ```powershell
-   cd C:\DONAR-APP\frontend
+   cd C:\DONARVERSION1\frontend
    ```
 3. Iniciá el servidor de desarrollo:
    ```powershell
@@ -70,8 +70,8 @@ Necesitás tener **dos ventanas de PowerShell abiertas** al mismo tiempo: una pa
 
 | Paso | Ventana | Carpeta | Comandos |
 |------|---------|---------|----------|
-| 1 | PowerShell 1 (Backend) | `C:\DONAR-APP\backend` | `venv\Scripts\activate` luego `python -m uvicorn main:app --reload` |
-| 2 | PowerShell 2 (Frontend) | `C:\DONAR-APP\frontend` | `npm run dev` |
+| 1 | PowerShell 1 (Backend) | `C:\DONARVERSION1\backend` | `venv\Scripts\activate` luego `python -m uvicorn main:app --reload` |
+| 2 | PowerShell 2 (Frontend) | `C:\DONARVERSION1\frontend` | `npm run dev` |
 | 3 | Navegador | — | Ir a `http://localhost:3000` |
 
 ---
